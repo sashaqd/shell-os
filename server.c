@@ -208,6 +208,10 @@ void *handle_client(void *arg) {
             // Signal the scheduler
             sem_post(&queue_sem);
 
+            // Send acknowledgment to client
+            char *msg = "Process added to queue successfully.\n";
+            send(conn_fd, msg, strlen(msg), 0);
+
             log_server("Client %d: Added process `%s` to the queue.", client_id, buf);
         } else {
             // Shell command
