@@ -13,7 +13,7 @@
 // Define constants for the server port, buffer size, and server IP address
 #define PORT 12345
 #define BUFFER_SIZE 4096
-#define SERVER_IP "127.0.0.1"
+#define SERVER_IP "127.0.0.1"  // Replace with your server's IP address
 
 int main(int argc, char *argv[])
 {
@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
     while (1)
     {
         // Prompt user for input
-        printf("Enter command (or 'exit' to quit): ");
+        printf("myshell$ ");
         fflush(stdout);  // Ensure the prompt is displayed immediately
 
         // Read user input
@@ -65,6 +65,11 @@ int main(int argc, char *argv[])
         if (strcmp(buf, "exit") == 0)
         {
             break;
+        }
+
+        if (strlen(buf) == 0)
+        {
+            continue;
         }
 
         // Send the command to the server
