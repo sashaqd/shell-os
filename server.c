@@ -30,6 +30,7 @@ typedef struct process {
     int arrival_time;       
     int last_executed_time; 
     int first_round_completed; 
+    int round_completed;       
     int is_running;         
     struct process *next;   
     int client_fd;          
@@ -188,6 +189,7 @@ void *handle_client(void *arg) {
             proc->arrival_time = time(NULL);
             proc->last_executed_time = 0;
             proc->first_round_completed = 0;
+            proc->round_completed = 0;
             proc->is_running = 0;
             proc->next = NULL;
             proc->client_fd = conn_fd;
@@ -346,6 +348,7 @@ void *scheduler_function(void *arg) {
         pthread_mutex_unlock(&queue_mutex);
 
         int quantum = current_process->first_round_completed ? 7 : 3;
+        // Add debug logging
         int slice = (current_process->remaining_time < quantum) ? current_process->remaining_time : quantum;
 
         int i;
@@ -397,10 +400,11 @@ void *scheduler_function(void *arg) {
         }
 
         if (!preempted) {
-            // If we completed the allotted slice or the process finished
             pthread_mutex_lock(&queue_mutex);
-            current_process->remaining_time -= i;  // account for the elapsed seconds
+            current_process->remaining_time -= i;
             current_process->last_executed_time = time(NULL);
+            current_process->first_round_completed = 1;
+            current_process->round_completed = 1;
 
             if (current_process->remaining_time <= 0) {
                 // Process finished
@@ -412,11 +416,16 @@ void *scheduler_function(void *arg) {
                 // Time slice completed without finishing, so preempt normally
                 kill(current_process->pid, SIGSTOP);
                 current_process->is_running = 0;
-                current_process->first_round_completed = 1;
-                fprintf(stderr, "[%d]---- waiting (%d)\n", current_process->client_id, current_process->remaining_time);
+                fprintf(stderr, "[%d]---- waiting (%d)\n", 
+                        current_process->client_id, 
+                        current_process->remaining_time);
                 sem_post(&queue_sem);
             }
 
+            pthread_mutex_unlock(&queue_mutex);
+        } else {
+            pthread_mutex_lock(&queue_mutex);
+            current_process->first_round_completed = 1;
             pthread_mutex_unlock(&queue_mutex);
         }
     }
@@ -453,35 +462,33 @@ void remove_process(process_t *proc) {
 process_t *get_next_process() {
     static process_t *last_process = NULL;
     
-    // First, check if all processes have completed their round
+    // First, check if all processes have completed their current round
     process_t *curr = process_queue;
     int all_completed = 1;
     while (curr != NULL) {
-        if (!curr->first_round_completed) {
+        if (!curr->round_completed) {  // Check round_completed instead of first_round_completed
             all_completed = 0;
             break;
         }
         curr = curr->next;
     }
 
-    // If all processes completed their round, reset their round completion status
+    // If all processes completed their round, reset round completion status
     if (all_completed) {
         curr = process_queue;
         while (curr != NULL) {
-            curr->first_round_completed = 0;
+            curr->round_completed = 0;  // Reset round_completed, not first_round_completed
             curr = curr->next;
         }
     }
 
     // Find the shortest remaining time process that hasn't completed its round
-    // and isn't the same as the last process that ran (if possible)
     process_t *selected_process = NULL;
     int min_remaining_time = INT_MAX;
     
-    // First try to find a process different from the last one
     curr = process_queue;
     while (curr != NULL) {
-        if (!curr->first_round_completed && 
+        if (!curr->round_completed &&  // Check round_completed instead
             curr->remaining_time < min_remaining_time && 
             curr != last_process) {
             min_remaining_time = curr->remaining_time;
@@ -492,10 +499,10 @@ process_t *get_next_process() {
 
     // If no different process found, then try including the last process
     if (selected_process == NULL) {
-        min_remaining_time = INT_MAX;
         curr = process_queue;
+        min_remaining_time = INT_MAX;
         while (curr != NULL) {
-            if (!curr->first_round_completed && 
+            if (!curr->round_completed &&  // Check round_completed instead
                 curr->remaining_time < min_remaining_time) {
                 min_remaining_time = curr->remaining_time;
                 selected_process = curr;
@@ -504,40 +511,11 @@ process_t *get_next_process() {
         }
     }
 
-    // If still no process found (all completed their round),
-    // start new round with shortest remaining time (different from last if possible)
-    if (selected_process == NULL) {
-        // First try to find a different process
-        curr = process_queue;
-        min_remaining_time = INT_MAX;
-        while (curr != NULL) {
-            if (curr->remaining_time < min_remaining_time && 
-                curr != last_process) {
-                min_remaining_time = curr->remaining_time;
-                selected_process = curr;
-            }
-            curr = curr->next;
-        }
-
-        // If no different process found, then include all processes
-        if (selected_process == NULL) {
-            curr = process_queue;
-            min_remaining_time = INT_MAX;
-            while (curr != NULL) {
-                if (curr->remaining_time < min_remaining_time) {
-                    min_remaining_time = curr->remaining_time;
-                    selected_process = curr;
-                }
-                curr = curr->next;
-            }
-        }
-    }
-
-    // If still no process found (shouldn't happen if queue not empty)
+    // If still no process found, select any process
     if (selected_process == NULL) {
         selected_process = process_queue;
     }
-
+    
     last_process = selected_process;
     return selected_process;
 }
