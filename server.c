@@ -201,6 +201,9 @@ void *handle_client(void *arg) {
             send(conn_fd, msg, strlen(msg), 0);
         } else {
             // Shell command
+            // Add created log for shell command
+            fprintf(stderr, "[%d]---- created (-1)\n", client_id);
+
             // We execute and then send bytes back:
             int pipe_stdin[2];  
             int pipe_stdout[2]; 
@@ -227,6 +230,9 @@ void *handle_client(void *arg) {
                 perror("execl");
                 exit(1);
             } else {
+                // Add started log for shell command
+                fprintf(stderr, "[%d]---- started (-1)\n", client_id);
+
                 close(pipe_stdin[0]);
                 close(pipe_stdout[1]);
 
@@ -254,6 +260,9 @@ void *handle_client(void *arg) {
 
                 // Log bytes sent
                 fprintf(stderr, "[%d]<<< %d bytes sent\n", client_id, total_bytes);
+
+                // After sending output, add ended log
+                fprintf(stderr, "[%d]---- ended (-1)\n", client_id);
             }
         }
     }
