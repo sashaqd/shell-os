@@ -20,6 +20,11 @@
 #define PORT 12345
 #define BUFFER_SIZE 4096
 #define MAX_CLIENTS 100
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
 
 typedef struct process {
     int pid;                
@@ -200,11 +205,11 @@ void *handle_client(void *arg) {
             sem_post(&queue_sem);
 
             // Process created log
-            fprintf(stderr, "[%d]---- created (%d)\n", client_id, proc->remaining_time);
+            fprintf(stderr, "[%d]---- " ANSI_COLOR_BLUE "created" ANSI_COLOR_RESET " (%d)\n", client_id, proc->remaining_time);
         } else {
             // Shell command
             // Add created log for shell command
-            fprintf(stderr, "[%d]---- created (-1)\n", client_id);
+            fprintf(stderr, "[%d]---- " ANSI_COLOR_BLUE "created" ANSI_COLOR_RESET " (-1)\n", client_id);
 
             // We execute and then send bytes back:
             int pipe_stdin[2];  
@@ -233,7 +238,7 @@ void *handle_client(void *arg) {
                 exit(1);
             } else {
                 // Add started log for shell command
-                fprintf(stderr, "[%d]---- started (-1)\n", client_id);
+                fprintf(stderr, "[%d]---- " ANSI_COLOR_GREEN "started" ANSI_COLOR_RESET " (-1)\n", client_id);
 
                 close(pipe_stdin[0]);
                 close(pipe_stdout[1]);
@@ -264,7 +269,7 @@ void *handle_client(void *arg) {
                 fprintf(stderr, "[%d]<<< %d bytes sent\n", client_id, total_bytes);
 
                 // After sending output, add ended log
-                fprintf(stderr, "[%d]---- ended (-1)\n", client_id);
+                fprintf(stderr, "[%d]---- " ANSI_COLOR_RED "ended" ANSI_COLOR_RESET " (-1)\n", client_id);
             }
         }
     }
@@ -337,13 +342,13 @@ void *scheduler_function(void *arg) {
             } else {
                 current_process->pid = pid;
                 current_process->is_running = 1;
-                fprintf(stderr, "[%d]---- started (%d)\n", current_process->client_id, current_process->remaining_time);
+                fprintf(stderr, "[%d]---- " ANSI_COLOR_GREEN "started" ANSI_COLOR_RESET " (%d)\n", current_process->client_id, current_process->remaining_time);
             }
         } else {
             // Resuming existing process
             kill(current_process->pid, SIGCONT);
             current_process->is_running = 1;
-            fprintf(stderr, "[%d]---- running (%d)\n", current_process->client_id, current_process->remaining_time);
+            fprintf(stderr, "[%d]---- " ANSI_COLOR_GREEN "running" ANSI_COLOR_RESET " (%d)\n", current_process->client_id, current_process->remaining_time);
         }
         pthread_mutex_unlock(&queue_mutex);
 
@@ -389,7 +394,7 @@ void *scheduler_function(void *arg) {
                 current_process->last_executed_time = time(NULL);
                 current_process->is_running = 0;
                 current_process->first_round_completed = 1;
-                fprintf(stderr, "[%d]---- waiting (%d)\n", current_process->client_id, current_process->remaining_time);
+                fprintf(stderr, "[%d]---- " ANSI_COLOR_YELLOW "waiting" ANSI_COLOR_RESET " (%d)\n", current_process->client_id, current_process->remaining_time);
                 sem_post(&queue_sem);
                 pthread_mutex_unlock(&queue_mutex);
                 preempted = 1;
@@ -414,14 +419,14 @@ void *scheduler_function(void *arg) {
                 int total_bytes = current_process->burst_time * strlen("Demo XX/XX\n");
                 fprintf(stderr, "[%d]<<< %d bytes sent\n", current_process->client_id, total_bytes);
                 
-                fprintf(stderr, "[%d]---- ended (0)\n", current_process->client_id);
+                fprintf(stderr, "[%d]---- " ANSI_COLOR_RED "ended" ANSI_COLOR_RESET " (0)\n", current_process->client_id);
                 remove_process(current_process);
                 current_process = NULL;
             } else {
                 // Time slice completed without finishing, so preempt normally
                 kill(current_process->pid, SIGSTOP);
                 current_process->is_running = 0;
-                fprintf(stderr, "[%d]---- waiting (%d)\n", 
+                fprintf(stderr, "[%d]---- " ANSI_COLOR_YELLOW "waiting" ANSI_COLOR_RESET " (%d)\n", 
                         current_process->client_id, 
                         current_process->remaining_time);
                 sem_post(&queue_sem);
