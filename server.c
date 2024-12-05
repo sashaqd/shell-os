@@ -311,6 +311,8 @@ void *scheduler_function(void *arg) {
             continue;
         }
 
+        time_t current_start_time = time(NULL);
+
         if (current_process->pid == -1) {
             // Start new process
             pid_t pid = fork();
@@ -333,43 +335,79 @@ void *scheduler_function(void *arg) {
             } else {
                 current_process->pid = pid;
                 current_process->is_running = 1;
-                // Log started
                 fprintf(stderr, "[%d]---- started (%d)\n", current_process->client_id, current_process->remaining_time);
             }
         } else {
-            // Resuming
+            // Resuming existing process
             kill(current_process->pid, SIGCONT);
             current_process->is_running = 1;
-            // Log started again (or running)
             fprintf(stderr, "[%d]---- running (%d)\n", current_process->client_id, current_process->remaining_time);
         }
         pthread_mutex_unlock(&queue_mutex);
 
         int quantum = current_process->first_round_completed ? 7 : 3;
-        int sleep_time = current_process->remaining_time < quantum ? current_process->remaining_time : quantum;
+        int slice = (current_process->remaining_time < quantum) ? current_process->remaining_time : quantum;
 
-        sleep(sleep_time);
+        int i;
+        int preempted = 0;
+        for (i = 0; i < slice; i++) {
+            sleep(1);
 
-        current_process->remaining_time -= sleep_time;
-        current_process->last_executed_time = time(NULL);
-
-        if (current_process->remaining_time <= 0) {
-            // Process finished
-            waitpid(current_process->pid, NULL, 0);
-            // Log ended
-            fprintf(stderr, "[%d]---- ended (0)\n", current_process->client_id);
+            // After 1 second, check if a new, shorter job arrived
             pthread_mutex_lock(&queue_mutex);
-            remove_process(current_process);
+            int remaining_after_this_second = current_process->remaining_time - (i + 1);
+
+            process_t *check_proc = process_queue;
+            int found_shorter_new_job = 0;
+            while (check_proc != NULL) {
+                if (check_proc != current_process && 
+                    check_proc->arrival_time > current_start_time && 
+                    check_proc->remaining_time < remaining_after_this_second) {
+                    found_shorter_new_job = 1;
+                    break;
+                }
+                check_proc = check_proc->next;
+            }
+
+            if (found_shorter_new_job) {
+                // Preempt current process due to a newly arrived shorter job
+                kill(current_process->pid, SIGSTOP);
+                current_process->remaining_time = remaining_after_this_second;
+                current_process->last_executed_time = time(NULL);
+                current_process->is_running = 0;
+                current_process->first_round_completed = 1;
+                fprintf(stderr, "[%d]---- waiting (%d)\n", current_process->client_id, current_process->remaining_time);
+                sem_post(&queue_sem);
+                pthread_mutex_unlock(&queue_mutex);
+                preempted = 1;
+                break;
+            }
+
             pthread_mutex_unlock(&queue_mutex);
-            current_process = NULL;
-        } else {
-            // Preempt process
-            kill(current_process->pid, SIGSTOP);
-            current_process->is_running = 0;
-            current_process->first_round_completed = 1;
-            // After running, it goes back to waiting
-            fprintf(stderr, "[%d]---- waiting (%d)\n", current_process->client_id, current_process->remaining_time);
-            sem_post(&queue_sem);
+        }
+
+        if (!preempted) {
+            // If we completed the allotted slice or the process finished
+            pthread_mutex_lock(&queue_mutex);
+            current_process->remaining_time -= i;  // account for the elapsed seconds
+            current_process->last_executed_time = time(NULL);
+
+            if (current_process->remaining_time <= 0) {
+                // Process finished
+                waitpid(current_process->pid, NULL, 0);
+                fprintf(stderr, "[%d]---- ended (0)\n", current_process->client_id);
+                remove_process(current_process);
+                current_process = NULL;
+            } else {
+                // Time slice completed without finishing, so preempt normally
+                kill(current_process->pid, SIGSTOP);
+                current_process->is_running = 0;
+                current_process->first_round_completed = 1;
+                fprintf(stderr, "[%d]---- waiting (%d)\n", current_process->client_id, current_process->remaining_time);
+                sem_post(&queue_sem);
+            }
+
+            pthread_mutex_unlock(&queue_mutex);
         }
     }
     return NULL;
