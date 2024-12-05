@@ -441,31 +441,89 @@ void remove_process(process_t *proc) {
 }
 
 process_t *get_next_process() {
-    // Example: shortest remaining time first
     static process_t *last_process = NULL;
-
+    
+    // First, check if all processes have completed their round
     process_t *curr = process_queue;
+    int all_completed = 1;
+    while (curr != NULL) {
+        if (!curr->first_round_completed) {
+            all_completed = 0;
+            break;
+        }
+        curr = curr->next;
+    }
+
+    // If all processes completed their round, reset their round completion status
+    if (all_completed) {
+        curr = process_queue;
+        while (curr != NULL) {
+            curr->first_round_completed = 0;
+            curr = curr->next;
+        }
+    }
+
+    // Find the shortest remaining time process that hasn't completed its round
+    // and isn't the same as the last process that ran (if possible)
     process_t *selected_process = NULL;
     int min_remaining_time = INT_MAX;
+    
+    // First try to find a process different from the last one
+    curr = process_queue;
     while (curr != NULL) {
-        if (curr != last_process && curr->remaining_time < min_remaining_time) {
+        if (!curr->first_round_completed && 
+            curr->remaining_time < min_remaining_time && 
+            curr != last_process) {
             min_remaining_time = curr->remaining_time;
             selected_process = curr;
         }
         curr = curr->next;
     }
 
+    // If no different process found, then try including the last process
     if (selected_process == NULL) {
+        min_remaining_time = INT_MAX;
         curr = process_queue;
         while (curr != NULL) {
-            if (curr != last_process) {
+            if (!curr->first_round_completed && 
+                curr->remaining_time < min_remaining_time) {
+                min_remaining_time = curr->remaining_time;
                 selected_process = curr;
-                break;
             }
             curr = curr->next;
         }
     }
 
+    // If still no process found (all completed their round),
+    // start new round with shortest remaining time (different from last if possible)
+    if (selected_process == NULL) {
+        // First try to find a different process
+        curr = process_queue;
+        min_remaining_time = INT_MAX;
+        while (curr != NULL) {
+            if (curr->remaining_time < min_remaining_time && 
+                curr != last_process) {
+                min_remaining_time = curr->remaining_time;
+                selected_process = curr;
+            }
+            curr = curr->next;
+        }
+
+        // If no different process found, then include all processes
+        if (selected_process == NULL) {
+            curr = process_queue;
+            min_remaining_time = INT_MAX;
+            while (curr != NULL) {
+                if (curr->remaining_time < min_remaining_time) {
+                    min_remaining_time = curr->remaining_time;
+                    selected_process = curr;
+                }
+                curr = curr->next;
+            }
+        }
+    }
+
+    // If still no process found (shouldn't happen if queue not empty)
     if (selected_process == NULL) {
         selected_process = process_queue;
     }
