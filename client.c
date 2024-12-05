@@ -46,10 +46,6 @@ int main(int argc, char *argv[])
     // Main loop for sending commands and receiving responses
     while (1)
     {
-        // Prompt user for input
-        printf("myshell$ ");
-        fflush(stdout);  // Ensure the prompt is displayed immediately
-
         // Read user input
         if (fgets(buf, BUFFER_SIZE, stdin) == NULL)
         {
