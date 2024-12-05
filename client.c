@@ -87,29 +87,46 @@ int main(int argc, char *argv[])
         {
             // Prepare to receive output from server
             char output_buf[BUFFER_SIZE];
-            int numbytes;
-
-            // Loop to receive data until server stops sending
-            while ((numbytes = recv(sock_fd, output_buf, BUFFER_SIZE - 1, 0)) > 0)
+            int numbytes = recv(sock_fd, output_buf, BUFFER_SIZE - 1, 0);
+            
+            if (numbytes <= 0)
             {
-                // Null-terminate the received data
-                output_buf[numbytes] = '\0';
-                
-                // Print the received data
-                printf("%s", output_buf);
-                
-                // If we received less than a full buffer, assume the server is done sending
-                if (numbytes < BUFFER_SIZE - 1)
+                if (numbytes < 0)
                 {
-                    break;
+                    perror("recv");
+                    exit(1);
+                }
+                break;  // Server closed connection
+            }
+
+            // Null-terminate the received data
+            output_buf[numbytes] = '\0';
+            
+            // Print the received data
+            printf("%s", output_buf);
+            fflush(stdout);  // Ensure output is displayed immediately
+            
+            // For demo programs, check if we've received the final message
+            if (strncmp(buf, "./", 2) == 0)
+            {
+                // Check if this is a demo progress message
+                if (strncmp(output_buf, "Demo ", 5) == 0)
+                {
+                    // Extract current and total values
+                    int current, total;
+                    if (sscanf(output_buf, "Demo %d/%d", &current, &total) == 2)
+                    {
+                        if (current >= total)  // Break when we reach the final update
+                        {
+                            break;
+                        }
+                    }
                 }
             }
-            
-            // Check for receive errors
-            if (numbytes == -1)
+            // For shell commands, break when we receive less than full buffer
+            else if (numbytes < BUFFER_SIZE - 1)
             {
-                perror("recv");
-                exit(1);
+                break;
             }
         }
     }
