@@ -409,6 +409,11 @@ void *scheduler_function(void *arg) {
             if (current_process->remaining_time <= 0) {
                 // Process finished
                 waitpid(current_process->pid, NULL, 0);
+                
+                // Calculate total bytes sent for all progress messages
+                int total_bytes = current_process->burst_time * strlen("Demo XX/XX\n");
+                fprintf(stderr, "[%d]<<< %d bytes sent\n", current_process->client_id, total_bytes);
+                
                 fprintf(stderr, "[%d]---- ended (0)\n", current_process->client_id);
                 remove_process(current_process);
                 current_process = NULL;
