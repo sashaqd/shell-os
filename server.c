@@ -32,6 +32,7 @@ typedef struct process {
     int first_round_completed; 
     int is_running;         
     struct process *next;   
+    int client_fd;          
 } process_t;
 
 process_t *process_queue = NULL;
@@ -189,6 +190,7 @@ void *handle_client(void *arg) {
             proc->first_round_completed = 0;
             proc->is_running = 0;
             proc->next = NULL;
+            proc->client_fd = conn_fd;
 
             pthread_mutex_lock(&queue_mutex);
             add_process(proc);
@@ -197,8 +199,6 @@ void *handle_client(void *arg) {
 
             // Process created log
             fprintf(stderr, "[%d]---- created (%d)\n", client_id, proc->remaining_time);
-            char *msg = "Process added to queue successfully.\n";
-            send(conn_fd, msg, strlen(msg), 0);
         } else {
             // Shell command
             // Add created log for shell command
@@ -352,6 +352,16 @@ void *scheduler_function(void *arg) {
         int preempted = 0;
         for (i = 0; i < slice; i++) {
             sleep(1);
+
+            // Send progress update to client
+            char progress_msg[BUFFER_SIZE];
+            snprintf(progress_msg, BUFFER_SIZE, "Demo %d/%d\n", 
+                    current_process->burst_time - current_process->remaining_time + i + 1,
+                    current_process->burst_time);
+            
+            // Find the client's connection fd (you'll need to store this in the process_t struct)
+            int client_fd = current_process->client_fd;  // Add this field to process_t
+            send(client_fd, progress_msg, strlen(progress_msg), 0);
 
             // After 1 second, check if a new, shorter job arrived
             pthread_mutex_lock(&queue_mutex);

@@ -79,34 +79,39 @@ int main(int argc, char *argv[])
             exit(1);
         }
 
-        // Prepare to receive output from server
-        char output_buf[BUFFER_SIZE];
-        int numbytes;
+        // Print the command that was sent
+        printf(">>> %s\n", buf);
 
-        // Loop to receive data until server stops sending
-        while ((numbytes = recv(sock_fd, output_buf, BUFFER_SIZE - 1, 0)) > 0)
+        // Receive loop - modified to handle continuous updates
+        while (1)
         {
-            // Null-terminate the received data
-            output_buf[numbytes] = '\0';
-            
-            // Print the received data
-            printf("%s", output_buf);
-            
-            // If we received less than a full buffer, assume the server is done sending
-            if (numbytes < BUFFER_SIZE - 1)
+            // Prepare to receive output from server
+            char output_buf[BUFFER_SIZE];
+            int numbytes;
+
+            // Loop to receive data until server stops sending
+            while ((numbytes = recv(sock_fd, output_buf, BUFFER_SIZE - 1, 0)) > 0)
             {
-                break;
+                // Null-terminate the received data
+                output_buf[numbytes] = '\0';
+                
+                // Print the received data
+                printf("%s", output_buf);
+                
+                // If we received less than a full buffer, assume the server is done sending
+                if (numbytes < BUFFER_SIZE - 1)
+                {
+                    break;
+                }
+            }
+            
+            // Check for receive errors
+            if (numbytes == -1)
+            {
+                perror("recv");
+                exit(1);
             }
         }
-        
-        // Check for receive errors
-        if (numbytes == -1)
-        {
-            perror("recv");
-            exit(1);
-        }
-
-        printf("\n"); // Print newline after output for readability
     }
 
     // Close the socket before exiting
