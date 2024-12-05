@@ -171,19 +171,9 @@ void *handle_client(void *arg) {
 
         log_server("Client %d: Received command `%s`.", client_id, buf);
 
-        // Check if the command is a shell command or program command
-        if (strncmp(buf, "demo", 4) == 0) {
-            // Program command
-            // Parse the burst time (N)
-            int N;
-            if (sscanf(buf, "demo %d", &N) != 1) {
-                // Invalid command format
-                char *msg = "Invalid command format. Use `demo N`.\n";
-                send(conn_fd, msg, strlen(msg), 0);
-                continue;
-            }
-
-            // Create a new process
+        // Check command type based on prefix
+        if (buf[0] == '.' && buf[1] == '/') {
+            // Program command (starts with "./" )
             process_t *proc = malloc(sizeof(process_t));
             if (proc == NULL) {
                 perror("malloc");
@@ -191,27 +181,23 @@ void *handle_client(void *arg) {
             }
             proc->pid = -1;
             proc->client_id = client_id;
-            strcpy(proc->command, buf);
-            proc->burst_time = N;
-            proc->remaining_time = N;
+            strncpy(proc->command, buf, BUFFER_SIZE - 1);
+            proc->command[BUFFER_SIZE - 1] = '\0';
+            proc->burst_time = 10; // Default burst time
+            proc->remaining_time = proc->burst_time;
             proc->arrival_time = time(NULL);
             proc->last_executed_time = 0;
             proc->first_round_completed = 0;
             proc->is_running = 0;
             proc->next = NULL;
 
-            // Add process to the queue
             pthread_mutex_lock(&queue_mutex);
             add_process(proc);
             pthread_mutex_unlock(&queue_mutex);
-
-            // Signal the scheduler
             sem_post(&queue_sem);
 
-            // Send acknowledgment to client
             char *msg = "Process added to queue successfully.\n";
             send(conn_fd, msg, strlen(msg), 0);
-
             log_server("Client %d: Added process `%s` to the queue.", client_id, buf);
         } else {
             // Shell command
@@ -349,17 +335,19 @@ void *scheduler_function(void *arg) {
                 continue;
             } else if (pid == 0) {
                 // Child process
-                // Parse the command to get N
-                int N;
-                sscanf(current_process->command, "demo %d", &N);
-
-                // Convert N to string
-                char N_str[10];
-                sprintf(N_str, "%d", N);
-
-                execl("./demo", "demo", N_str, NULL);
-                // If execl fails
-                perror("execl");
+                // New code: Parse command into arguments
+                char *args[64];
+                int arg_count = 0;
+                char *token = strtok(current_process->command, " ");
+                while (token != NULL && arg_count < 64) {
+                    args[arg_count++] = token;
+                    token = strtok(NULL, " ");
+                }
+                args[arg_count] = NULL;
+                
+                // Replace execl with execvp to handle arguments
+                execvp(args[0], args);
+                perror("execvp");
                 exit(1);
             } else {
                 // Parent process
