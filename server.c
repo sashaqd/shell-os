@@ -175,7 +175,7 @@ void *handle_client(void *arg) {
             proc->command[BUFFER_SIZE - 1] = '\0';
             // For the demo, assume burst_time extracted from command (e.g. "./demo 12")
             // Let's say the last argument is the burst time:
-            int burst = 10; 
+            int burst = 3; 
             char *copy_cmd = strdup(buf);
             if (copy_cmd) {
                 char *token = strtok(copy_cmd, " ");
@@ -281,18 +281,24 @@ void *handle_client(void *arg) {
     process_t *prev = NULL;
     process_t *curr = process_queue;
     while (curr != NULL) {
+        process_t *next = curr->next;  // Store next pointer before potential free
         if (curr->client_id == client_id) {
-            if (prev == NULL) {
-                process_queue = curr->next;
-            } else {
-                prev->next = curr->next;
+            // If process is running, stop it first
+            if (curr->is_running && curr->pid > 0) {
+                kill(curr->pid, SIGKILL);
+                waitpid(curr->pid, NULL, 0);
             }
-            process_t *to_free = curr;
-            curr = curr->next;
-            free(to_free);
+            
+            if (prev == NULL) {
+                process_queue = next;
+            } else {
+                prev->next = next;
+            }
+            free(curr);
+            curr = next;  // Move to next without updating prev
         } else {
             prev = curr;
-            curr = curr->next;
+            curr = next;
         }
     }
     pthread_mutex_unlock(&queue_mutex);
@@ -322,12 +328,26 @@ void *scheduler_function(void *arg) {
 
         if (current_process->pid == -1) {
             // Start new process
+            int pipe_stdout[2];  // Add pipe for capturing output
+            if (pipe(pipe_stdout) == -1) {
+                perror("pipe");
+                pthread_mutex_unlock(&queue_mutex);
+                continue;
+            }
+
             pid_t pid = fork();
             if (pid == -1) {
                 perror("fork");
+                close(pipe_stdout[0]);
+                close(pipe_stdout[1]);
                 pthread_mutex_unlock(&queue_mutex);
                 continue;
             } else if (pid == 0) {
+                // Child process
+                close(pipe_stdout[0]);  // Close read end
+                dup2(pipe_stdout[1], STDOUT_FILENO);  // Redirect stdout to pipe
+                close(pipe_stdout[1]);
+
                 char *args[64];
                 int arg_count = 0;
                 char *token = strtok(current_process->command, " ");
@@ -340,9 +360,33 @@ void *scheduler_function(void *arg) {
                 perror("execvp");
                 exit(1);
             } else {
+                // Parent process
+                close(pipe_stdout[1]);  // Close write end
                 current_process->pid = pid;
                 current_process->is_running = 1;
-                fprintf(stderr, "[%d]---- " ANSI_COLOR_GREEN "started" ANSI_COLOR_RESET " (%d)\n", current_process->client_id, current_process->remaining_time);
+
+                // Check if this is a demo command
+                if (strstr(current_process->command, "./demo") == current_process->command) {
+                    fprintf(stderr, "[%d]---- " ANSI_COLOR_GREEN "started" ANSI_COLOR_RESET " (%d)\n", 
+                        current_process->client_id, current_process->remaining_time);
+                } else {
+                    // For non-demo commands, capture and send output
+                    char output_buf[BUFFER_SIZE];
+                    char full_output[BUFFER_SIZE * 10] = {0};
+                    int total_bytes = 0;
+                    int read_bytes;
+
+                    while ((read_bytes = read(pipe_stdout[0], output_buf, BUFFER_SIZE - 1)) > 0) {
+                        output_buf[read_bytes] = '\0';
+                        strcat(full_output, output_buf);
+                        total_bytes += read_bytes;
+                    }
+                    close(pipe_stdout[0]);
+
+                    // Send output to client
+                    send(current_process->client_fd, full_output, strlen(full_output), 0);
+                    fprintf(stderr, "[%d]<<< %d bytes sent\n", current_process->client_id, total_bytes);
+                }
             }
         } else {
             // Resuming existing process
@@ -353,7 +397,6 @@ void *scheduler_function(void *arg) {
         pthread_mutex_unlock(&queue_mutex);
 
         int quantum = current_process->first_round_completed ? 7 : 3;
-        // Add debug logging
         int slice = (current_process->remaining_time < quantum) ? current_process->remaining_time : quantum;
 
         int i;
@@ -361,17 +404,15 @@ void *scheduler_function(void *arg) {
         for (i = 0; i < slice; i++) {
             sleep(1);
 
-            // Send progress update to client
-            char progress_msg[BUFFER_SIZE];
-            snprintf(progress_msg, BUFFER_SIZE, "Demo %d/%d\n", 
-                    current_process->burst_time - current_process->remaining_time + i + 1,
-                    current_process->burst_time);
-            
-            // Find the client's connection fd (you'll need to store this in the process_t struct)
-            int client_fd = current_process->client_fd;  // Add this field to process_t
-            send(client_fd, progress_msg, strlen(progress_msg), 0);
+            if (strstr(current_process->command, "./demo") == current_process->command) {
+                char progress_msg[BUFFER_SIZE];
+                snprintf(progress_msg, BUFFER_SIZE, "Demo %d/%d\n", 
+                        current_process->burst_time - current_process->remaining_time + i + 1,
+                        current_process->burst_time);
+                int client_fd = current_process->client_fd;
+                send(client_fd, progress_msg, strlen(progress_msg), 0);
+            }
 
-            // After 1 second, check if a new, shorter job arrived
             pthread_mutex_lock(&queue_mutex);
             int remaining_after_this_second = current_process->remaining_time - (i + 1);
 

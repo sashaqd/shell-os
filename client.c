@@ -78,10 +78,9 @@ int main(int argc, char *argv[])
         // Print the command that was sent
         printf(">>> %s\n", buf);
 
-        // Receive loop - modified to handle continuous updates
+        // Receive loop - modified to handle different types of output
         while (1)
         {
-            // Prepare to receive output from server
             char output_buf[BUFFER_SIZE];
             int numbytes = recv(sock_fd, output_buf, BUFFER_SIZE - 1, 0);
             
@@ -98,31 +97,41 @@ int main(int argc, char *argv[])
             // Null-terminate the received data
             output_buf[numbytes] = '\0';
             
-            // Print the received data
-            printf("%s", output_buf);
-            fflush(stdout);  // Ensure output is displayed immediately
-            
-            // For demo programs, check if we've received the final message
-            if (strncmp(buf, "./", 2) == 0)
+            // Check if this is a demo command (starts with "./demo")
+            if (strncmp(buf, "./demo", 6) == 0)
             {
-                // Check if this is a demo progress message
+                // For demo commands, show progress updates
+                printf("%s", output_buf);
+                fflush(stdout);
+                
+                // Check if this is the final update
                 if (strncmp(output_buf, "Demo ", 5) == 0)
                 {
-                    // Extract current and total values
                     int current, total;
                     if (sscanf(output_buf, "Demo %d/%d", &current, &total) == 2)
                     {
-                        if (current >= total)  // Break when we reach the final update
+                        if (current >= total)
                         {
                             break;
                         }
                     }
                 }
             }
-            // For shell commands, break when we receive less than full buffer
-            else if (numbytes < BUFFER_SIZE - 1)
+            else
             {
-                break;
+                // For non-demo commands, only show the actual command output
+                // (skip any "Demo X/Y" messages)
+                if (strncmp(output_buf, "Demo ", 5) != 0)
+                {
+                    printf("%s", output_buf);
+                    fflush(stdout);
+                }
+                
+                // Break if we received less than a full buffer
+                if (numbytes < BUFFER_SIZE - 1)
+                {
+                    break;
+                }
             }
         }
     }
